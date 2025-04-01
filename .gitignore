@@ -10,6 +10,7 @@ __pycache__/
 
 # Zjdecia
 database/
+output/
 
 # Pliki środowisk wirtualnych
 venv/
