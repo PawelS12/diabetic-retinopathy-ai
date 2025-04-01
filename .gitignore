@@ -8,6 +8,9 @@
 *.pyd
 __pycache__/
 
+# Zjdecia
+database/
+
 # Pliki środowisk wirtualnych
 venv/
 env/
