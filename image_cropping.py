@@ -7,16 +7,16 @@ import math
 from PIL import Image
 from multiprocessing import Pool, cpu_count
 
-# Sprawdzenie ścieżki i plików
-path = 'E:\\diabetic-retinopathy-ai\\database\\resized_train\\resized_train\\*.jpeg'
+# Check the path and files
+path = 'database/resized_train/resized_train/*.jpeg'
 files = glob.glob(path)
 
-print(f"Ścieżka wyszukiwania: {path}")
-print(f"Liczba znalezionych plików: {len(files)}")
+print(f"Search path: {path}")
+print(f"Number of files found: {len(files)}")
 if files:
-    print("Pierwsze kilka plików:", files[:5])
+    print("First few files:", files[:5])
 else:
-    print("Nie znaleziono żadnych plików! Sprawdź ścieżkę lub czy katalog zawiera pliki .jpeg")
+    print("No files found! Check the path or whether the folder contains .jpeg files.")
 
 new_sz = 1024
 
@@ -27,7 +27,7 @@ def crop_image(image):
     contours, hierarchy = cv2.findContours(gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     if not contours:
-        print('no contours!')
+        print('No contours found!')
         flag = 0
         return image, flag
 
@@ -55,7 +55,7 @@ def crop_image(image):
     return image, flag
 
 def process_image(file):
-    """Funkcja do przetwarzania pojedynczego obrazu, wywoływana w procesie równoległym"""
+    # Function to process a single image, used in parallel processing
     try:
         img = cv2.imread(file)
         if img is not None:
@@ -64,28 +64,28 @@ def process_image(file):
                 filename = os.path.basename(file)
                 output_path = f'output/{filename}'
                 cv2.imwrite(output_path, processed_img)
-                return f"Przetworzono: {filename}"
+                return f"Processed: {filename}"
             else:
-                return f"Pominięto: {file} (nieudane przetwarzanie)"
+                return f"Skipped: {file} (processing failed)"
         else:
-            return f"Nie udało się wczytać pliku: {file}"
+            return f"Could not read file: {file}"
     except Exception as e:
-        return f"Błąd przy przetwarzaniu {file}: {str(e)}"
+        return f"Error while processing {file}: {str(e)}"
 
 if __name__ == "__main__":
-    # Tworzenie katalogu wyjściowego
+    # Create output directory
     if not os.path.exists('output'):
         os.makedirs('output')
 
-    # Ustalanie liczby procesów (domyślnie liczba rdzeni procesora)
+    # Determine the number of processes (default: number of CPU cores)
     num_processes = cpu_count()
-    print(f"Używam {num_processes} procesów równoległych")
+    print(f"Using {num_processes} parallel processes")
 
-    # Tworzenie puli procesów
+    # Create a pool of processes
     with Pool(processes=num_processes) as pool:
-        # Równoległe przetwarzanie plików z paskiem postępu
-        results = list(tqdm(pool.imap(process_image, files), total=len(files), desc="Przetwarzanie obrazów"))
+        # Parallel image processing with a progress bar
+        results = list(tqdm(pool.imap(process_image, files), total=len(files), desc="Processing images"))
 
-    # Wyświetlanie wyników (opcjonalne)
+    # Display results (optional)
     for result in results:
         print(result)

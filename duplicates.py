@@ -6,44 +6,44 @@ from tqdm import tqdm
 from multiprocessing import Pool, Manager
 import multiprocessing as mp
 
-# Ścieżka do folderu z obrazami
-output_folder = 'E:\\diabetic-retinopathy-ai\\output'
-image_extensions = ['*.jpeg', '*.jpg', '*.png']  # Obsługiwane rozszerzenia
+# Path to the folder with images and supported extensions
+output_folder = 'output'
+image_extensions = ['*.jpeg', '*.jpg', '*.png']
 
-# Zbierz wszystkie pliki obrazów
+
 image_files = []
 for ext in image_extensions:
     image_files.extend(glob.glob(os.path.join(output_folder, ext)))
 
-print(f"Znaleziono {len(image_files)} obrazów w folderze {output_folder}")
+print(f"Found {len(image_files)} images in the folder {output_folder}")
 
 
-# Funkcja do obliczania hasha dla pojedynczego obrazu
+# Function to compute hash for a single image
 def compute_hash(image_path):
     try:
         with Image.open(image_path) as img:
-            # Oblicz difference hash (dhash)
+            # Compute difference hash (dhash)
             img_hash = imagehash.dhash(img)
-            return (str(img_hash), image_path)  # Zwracamy hash jako string i ścieżkę
+            return (str(img_hash), image_path)  # Return hash as string and path
     except Exception as e:
-        print(f"Błąd podczas przetwarzania {image_path}: {e}")
+        print(f"Error processing {image_path}: {e}")
         return None
 
 
-# Funkcja do równoległego obliczania hashy
+# Function to compute hashes in parallel
 def parallel_hash_computation(image_files):
-    # Liczba procesów - domyślnie liczba rdzeni CPU
+    # Number of processes - by default, number of CPU cores
     num_processes = mp.cpu_count()
     print(f"Używam {num_processes} procesów do obliczania hashy.")
 
-    # Utwórz pulę procesów
+    # Create a pool of processes
     with Pool(processes=num_processes) as pool:
-        # Oblicz hashe równolegle z paskiem postępu
+        # Compute hashes in parallel with a progress bar
         results = list(tqdm(pool.imap(compute_hash, image_files),
                             total=len(image_files),
                             desc="Obliczanie hashy obrazów"))
 
-    # Filtruj None (błędy) i buduj słownik hashy
+    # Filter out None (errors) and build hash dictionary
     hash_dict = {}
     for result in results:
         if result is not None:
@@ -57,18 +57,17 @@ def parallel_hash_computation(image_files):
 
 
 if __name__ == "__main__":
-    # Oblicz hashe równolegle
+    # Compute hashes in parallel
     hash_dict = parallel_hash_computation(image_files)
 
-    # Znajdź i usuń duplikaty
+    # Find and remove duplicates
     duplicates_count = 0
     for img_hash, file_list in hash_dict.items():
-        if len(file_list) > 1:  # Jeśli mamy więcej niż jeden plik z tym samym hashem
+        if len(file_list) > 1:
             duplicates_count += len(file_list) - 1
-            # Zachowaj pierwszy plik, usuń resztę
             for file_to_remove in file_list[1:]:
-                print(f"Usuwanie duplikatu: {file_to_remove}")
+                print(f"Removing duplicate: {file_to_remove}")
                 os.remove(file_to_remove)
 
-    print(f"Znaleziono i usunięto {duplicates_count} duplikatów.")
-    print(f"Pozostało {len(image_files) - duplicates_count} unikalnych obrazów.")
+    print(f"Found and removed {duplicates_count} duplicates.")
+    print(f"{len(image_files) - duplicates_count} unique images remain.")
