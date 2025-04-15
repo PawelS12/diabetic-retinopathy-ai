@@ -6,7 +6,6 @@ from tqdm import tqdm
 from multiprocessing import Pool, Manager
 import multiprocessing as mp
 
-# Path to the folder with images and supported extensions
 output_folder = 'output'
 image_extensions = ['*.jpeg', '*.jpg', '*.png']
 
@@ -17,33 +16,23 @@ for ext in image_extensions:
 
 print(f"Found {len(image_files)} images in the folder {output_folder}")
 
-
-# Function to compute hash for a single image
 def compute_hash(image_path):
     try:
         with Image.open(image_path) as img:
-            # Compute difference hash (dhash)
             img_hash = imagehash.dhash(img)
-            return (str(img_hash), image_path)  # Return hash as string and path
+            return (str(img_hash), image_path)
     except Exception as e:
         print(f"Error processing {image_path}: {e}")
         return None
 
-
-# Function to compute hashes in parallel
 def parallel_hash_computation(image_files):
-    # Number of processes - by default, number of CPU cores
     num_processes = mp.cpu_count()
-    print(f"Używam {num_processes} procesów do obliczania hashy.")
+    print(f"I use {num_processes} processes to calculate hashes.")
 
-    # Create a pool of processes
     with Pool(processes=num_processes) as pool:
-        # Compute hashes in parallel with a progress bar
         results = list(tqdm(pool.imap(compute_hash, image_files),
                             total=len(image_files),
-                            desc="Obliczanie hashy obrazów"))
-
-    # Filter out None (errors) and build hash dictionary
+                            desc="Calculating image hashes"))
     hash_dict = {}
     for result in results:
         if result is not None:
@@ -55,12 +44,9 @@ def parallel_hash_computation(image_files):
 
     return hash_dict
 
-
-if __name__ == "__main__":
-    # Compute hashes in parallel
+def remove_duplicates():
     hash_dict = parallel_hash_computation(image_files)
 
-    # Find and remove duplicates
     duplicates_count = 0
     for img_hash, file_list in hash_dict.items():
         if len(file_list) > 1:

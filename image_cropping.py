@@ -7,7 +7,6 @@ import math
 from PIL import Image
 from multiprocessing import Pool, cpu_count
 
-# Check the path and files
 path = 'database/resized_train/resized_train/*.jpeg'
 files = glob.glob(path)
 
@@ -20,7 +19,7 @@ else:
 
 new_sz = 1024
 
-def crop_image(image):
+def editing(image):
     output = image.copy()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     ret, gray = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
@@ -55,11 +54,10 @@ def crop_image(image):
     return image, flag
 
 def process_image(file):
-    # Function to process a single image, used in parallel processing
     try:
         img = cv2.imread(file)
         if img is not None:
-            processed_img, success = crop_image(img)
+            processed_img, success = editing(img)
             if success:
                 filename = os.path.basename(file)
                 output_path = f'output/{filename}'
@@ -72,20 +70,15 @@ def process_image(file):
     except Exception as e:
         return f"Error while processing {file}: {str(e)}"
 
-if __name__ == "__main__":
-    # Create output directory
+def crop_image():
     if not os.path.exists('output'):
         os.makedirs('output')
 
-    # Determine the number of processes (default: number of CPU cores)
     num_processes = cpu_count()
     print(f"Using {num_processes} parallel processes")
 
-    # Create a pool of processes
     with Pool(processes=num_processes) as pool:
-        # Parallel image processing with a progress bar
         results = list(tqdm(pool.imap(process_image, files), total=len(files), desc="Processing images"))
 
-    # Display results (optional)
     for result in results:
         print(result)
