@@ -19,7 +19,7 @@ else:
 
 new_sz = 1024
 
-def editing(image):
+def process_image_for_cropping(image):
     output = image.copy()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     ret, gray = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
@@ -57,7 +57,7 @@ def process_image(file):
     try:
         img = cv2.imread(file)
         if img is not None:
-            processed_img, success = editing(img)
+            processed_img, success = process_image_for_cropping(img)
             if success:
                 filename = os.path.basename(file)
                 output_path = f'output/{filename}'
