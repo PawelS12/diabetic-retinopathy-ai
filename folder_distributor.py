@@ -5,6 +5,8 @@ from tqdm import tqdm
 
 
 def split_photos():
+    print("\nPhoto splitting stage")
+    print("------------------------")
     csv_file = 'database/trainLabels.csv'
     source_folder = 'output'
     df = pd.read_csv(csv_file)
@@ -23,7 +25,5 @@ def split_photos():
 
         if os.path.exists(source_path):
             shutil.move(source_path, destination_path)
-        else:
-            print(f"File not found: {image_name}")
 
     print("Photo splitting process complete!")
