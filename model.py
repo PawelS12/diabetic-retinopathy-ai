@@ -20,7 +20,7 @@ csv_path = r'database\trainLabels_updated.csv'
 model_save_path = r'models/best_model_resnet18_15epoch.pth'
 
 # Parametry
-batch_size = 64
+batch_size = 16
 num_epochs = 15
 learning_rate = 0.001
 num_classes = 5
