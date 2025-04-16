@@ -6,15 +6,13 @@ from tqdm import tqdm
 from multiprocessing import Pool, Manager
 import multiprocessing as mp
 
-output_folder = 'output'
+output_folder = r"output"
 image_extensions = ['*.jpeg', '*.jpg', '*.png']
-
 
 image_files = []
 for ext in image_extensions:
     image_files.extend(glob.glob(os.path.join(output_folder, ext)))
 
-print(f"Found {len(image_files)} images in the folder {output_folder}")
 
 def compute_hash(image_path):
     try:
@@ -45,6 +43,8 @@ def parallel_hash_computation(image_files):
     return hash_dict
 
 def remove_duplicates():
+    print("\nDuplicate removal stage")
+    print("------------------------")
     hash_dict = parallel_hash_computation(image_files)
 
     duplicates_count = 0

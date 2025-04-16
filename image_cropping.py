@@ -9,15 +9,8 @@ from multiprocessing import Pool, cpu_count
 
 path = 'database/resized_train/resized_train/*.jpeg'
 files = glob.glob(path)
-
-print(f"Search path: {path}")
-print(f"Number of files found: {len(files)}")
-if files:
-    print("First few files:", files[:5])
-else:
-    print("No files found! Check the path or whether the folder contains .jpeg files.")
-
 new_sz = 1024
+
 
 def process_image_for_cropping(image):
     output = image.copy()
@@ -62,7 +55,7 @@ def process_image(file):
                 filename = os.path.basename(file)
                 output_path = f'output/{filename}'
                 cv2.imwrite(output_path, processed_img)
-                return f"Processed: {filename}"
+                # return f"Processed: {filename}"
             else:
                 return f"Skipped: {file} (processing failed)"
         else:
@@ -71,6 +64,11 @@ def process_image(file):
         return f"Error while processing {file}: {str(e)}"
 
 def crop_image():
+    print("Image cropping stage")
+    print("------------------------")
+    print(f"Search path: {path}")
+    print(f"Number of files found: {len(files)}")
+
     if not os.path.exists('output'):
         os.makedirs('output')
 

@@ -5,6 +5,8 @@ from tqdm import tqdm
 
 
 def split_photos():
+    print("\nPhoto splitting stage")
+    print("------------------------")
     csv_file = 'database/trainLabels.csv'
     source_folder = 'output'
     df = pd.read_csv(csv_file)

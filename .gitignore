@@ -11,6 +11,7 @@ __pycache__/
 # Zjdecia
 database/
 output/
+split/
 
 # Pliki środowisk wirtualnych
 venv/
