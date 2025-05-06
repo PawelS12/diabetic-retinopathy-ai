@@ -11,6 +11,9 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from torchvision.models import resnet18, ResNet18_Weights
 from tqdm import tqdm
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 # Ścieżki
 train_dir = r'split/train'
@@ -82,6 +85,50 @@ class DiabeticRetinopathyDataset(Dataset):
             img = augmented['image']
         return img, label
 
+
+def evaluate_model(model, val_loader, device):
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for images, labels in tqdm(val_loader, desc="Evaluating"):
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1)
+
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # Obliczanie dokładności
+    overall_accuracy = accuracy_score(all_labels, all_preds) * 100
+    print(f"Overall Accuracy: {overall_accuracy:.2f}%")
+
+    # Obliczanie dokładności dla każdego stopnia choroby
+    for level in range(num_classes):
+        level_indices = [i for i, label in enumerate(all_labels) if label == level]
+        level_preds = [all_preds[i] for i in level_indices]
+        level_acc = accuracy_score([level] * len(level_preds), level_preds) * 100
+        print(f"Accuracy for level {level}: {level_acc:.2f}%")
+
+    precision = precision_score(all_labels, all_preds, average='weighted')
+    recall = recall_score(all_labels, all_preds, average='weighted')
+    f1 = f1_score(all_labels, all_preds, average='weighted')
+
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print(f"F1 Score: {f1:.4f}")
+
+    # Confusion Matrix
+    cm = confusion_matrix(all_labels, all_preds)
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=[str(i) for i in range(num_classes)],
+                yticklabels=[str(i) for i in range(num_classes)])
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+    plt.show()
+
+
 # Funkcja trenowania
 def train_model():
     # Ustawienie urządzenia
@@ -131,6 +178,14 @@ def train_model():
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 
+    # Dane do wykresów
+    train_losses = []
+    train_accuracies = []
+    val_losses = []
+    val_accuracies = []
+    epoch_data = []
+
+
     # Trenowanie
     best_val_acc = 0.0
     os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
@@ -160,6 +215,9 @@ def train_model():
         train_loss = running_loss / len(train_loader)
         train_acc = 100 * train_correct / train_total
 
+        train_losses.append(train_loss)
+        train_accuracies.append(train_acc)
+
         # Walidacja
         model.eval()
         val_correct = 0
@@ -178,11 +236,54 @@ def train_model():
         val_loss = val_loss / len(val_loader)
         val_acc = 100 * val_correct / val_total
 
+        val_losses.append(val_loss)
+        val_accuracies.append(val_acc)
+
         print(f"Epoch {epoch+1}/{num_epochs}")
         print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
         print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
+
+        epoch_data.append({
+            "epoch": epoch + 1,
+            "train_loss": train_loss,
+            "train_acc": train_acc,
+            "val_loss": val_loss,
+            "val_acc": val_acc
+        })
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save(model.state_dict(), model_save_path)
             print(f"Saved best model with Val Acc: {val_acc:.2f}%")
+
+    # zapis danych z każdej epoki do csv
+    results_df = pd.DataFrame(epoch_data)
+    os.makedirs('results_plots', exist_ok=True)
+    results_df.to_csv(os.path.join('results_plots', 'training_results.csv'), index=False)
+
+    # ocena modelu po treniwaniu
+    evaluate_model(model, val_loader, device)
+
+    os.makedirs('results_plots', exist_ok=True)
+
+    # Wykres dokładności
+    plt.figure(figsize=(10, 5))
+    plt.plot(range(num_epochs), train_accuracies, label="Train Accuracy")
+    plt.plot(range(num_epochs), val_accuracies, label="Validation Accuracy")
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.title('Training and Validation Accuracy')
+    plt.legend()
+    plt.savefig(os.path.join('results_plots', 'training_validation_accuracy.png'))
+    plt.close()
+
+    # Wykres straty
+    plt.figure(figsize=(10, 5))
+    plt.plot(range(num_epochs), train_losses, label="Train Loss")
+    plt.plot(range(num_epochs), val_losses, label="Validation Loss")
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.savefig(os.path.join('results_plots', 'training_validation_loss.png'))
+    plt.close()
