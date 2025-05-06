@@ -16,10 +16,14 @@ transform = A.Compose([
     A.Rotate(limit=30, p=0.5),
     A.HorizontalFlip(p=0.5),
     A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-    A.GaussNoise(p=0.3),
     A.RandomScale(scale_limit=0.1, p=0.4),
+    A.Affine(shear=(-10, 10), translate_percent=(-0.1, 0.1), p=0.3),
+    A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.3),
+    A.CoarseDropout(num_holes_range=(8, 8), hole_height_range=(32, 32), hole_width_range=(32, 32), p=0.3),
+    A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, val_shift_limit=20, p=0.5),
     A.Resize(height=1024, width=1024, p=1.0)
 ])
+
 
 def augment_image(args):
     file_path, output_dir, level = args
@@ -90,4 +94,4 @@ def augment_train_set():
         print("No new entries added to CSV.")
 
     print("Dataset augmentation complete!")
-    print(f"Augmented images saved to {output_dir}")
+    print(f"Augmented images saved to {output_dir}\n")
