@@ -20,7 +20,7 @@ train_dir = r'split/train'
 augmented_dir = r'split/train_augmented'
 val_dir = r'split/val'
 csv_path = r'database\trainLabels_updated.csv'
-model_save_path = r'models/best_model_resnet18_15epoch_without_gauss.pth'
+model_save_path = r'models/best_model_resnet18_15epoch.pth'
 
 # Parametry
 batch_size = 16
@@ -199,7 +199,7 @@ def train_model():
         for i, (images, labels) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Training")):
             images, labels = images.to(device), labels.to(device)
             if i == 0 and epoch == 0:
-                print(f"\nFirst batch images device: {images.device}")
+                print(f"First batch images device: {images.device}")
                 print(f"First batch labels device: {labels.device}")
             optimizer.zero_grad()
             outputs = model(images)

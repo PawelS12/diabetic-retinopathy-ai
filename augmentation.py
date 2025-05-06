@@ -8,22 +8,20 @@ from multiprocessing import Pool, cpu_count
 
 train_dir = r'split/train'
 output_dir = r'split/train_augmented'
-csv_path = r'database\trainLabels_updated.csv'
+csv_path = r'database/trainLabels_updated.csv'
 
 num_augmentations = 3
 
-transform = A.Compose([
-    A.Rotate(limit=30, p=0.5),
-    A.HorizontalFlip(p=0.5),
-    A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-    A.RandomScale(scale_limit=0.1, p=0.4),
-    A.Affine(shear=(-10, 10), translate_percent=(-0.1, 0.1), p=0.3),
-    A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.3),
-    A.CoarseDropout(num_holes_range=(8, 8), hole_height_range=(32, 32), hole_width_range=(32, 32), p=0.3),
-    A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, val_shift_limit=20, p=0.5),
-    A.Resize(height=1024, width=1024, p=1.0)
-])
+supported_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff')
 
+transform = A.Compose([
+    A.Rotate(limit=15, p=0.5),
+    A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+    # A.RandomScale(scale_limit=0.1, p=0.4),
+    A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.3),
+    A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=15, val_shift_limit=10, p=0.4),
+    # A.Resize(height=1024, width=1024, p=1.0)
+])
 
 def augment_image(args):
     file_path, output_dir, level = args
@@ -33,17 +31,17 @@ def augment_image(args):
             print(f"Could not read file: {file_path}")
             return None
 
-        filename = os.path.splitext(os.path.basename(file_path))[0]
+        filename, ext = os.path.splitext(os.path.basename(file_path))
         output_level_dir = os.path.join(output_dir, level)
         os.makedirs(output_level_dir, exist_ok=True)
 
         new_entries = []
         for i in range(num_augmentations):
             augmented = transform(image=img)['image']
-            new_filename = f"{filename}_aug_{i}"
-            output_path = os.path.join(output_level_dir, f"{new_filename}.jpeg")
+            new_filename = f"{filename}_aug_{i}{ext}"
+            output_path = os.path.join(output_level_dir, new_filename)
             cv2.imwrite(output_path, augmented)
-            new_entries.append({'image': new_filename, 'level': int(level)})
+            new_entries.append({'image': os.path.splitext(new_filename)[0], 'level': int(level)})
 
         return new_entries
     except Exception as e:
@@ -59,7 +57,7 @@ def augment_train_set():
         level_dir = os.path.join(train_dir, level)
         if os.path.isdir(level_dir):
             for file in os.listdir(level_dir):
-                if file.endswith(('.jpeg', '.jpg', '.png')):
+                if file.lower().endswith(supported_extensions):
                     image_files.append((os.path.join(level_dir, file), output_dir, level))
 
     print(f"Found {len(image_files)} images in {train_dir}")

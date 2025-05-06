@@ -8,7 +8,7 @@ import multiprocessing as mp
 import pandas as pd
 
 output_folder = r"output"
-image_extensions = ['*.jpeg', '*.jpg', '*.png']
+image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.tif', '*.tiff']
 csv_path = r'database\trainLabels.csv'
 updated_csv_path = r'database\trainLabels_updated.csv'
 
@@ -58,7 +58,7 @@ def remove_duplicates():
     duplicates_count = 0
     kept_files = []
     for img_hash, file_list in hash_dict.items():
-        kept_files.append(file_list[0]) # Keep the first file
+        kept_files.append(file_list[0])
         if len(file_list) > 1:
             duplicates_count += len(file_list) - 1
             for file_to_remove in file_list[1:]:
@@ -68,7 +68,6 @@ def remove_duplicates():
     print(f"Found and removed {duplicates_count} duplicates.")
     print(f"{len(image_files) - duplicates_count} unique images remain.")
 
-    # Aktualizacja pliku CSV
     df = pd.read_csv(csv_path)
     kept_filenames = [os.path.splitext(os.path.basename(f))[0] for f in kept_files]
     updated_df = df[df['image'].isin(kept_filenames)]
