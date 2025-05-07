@@ -17,7 +17,6 @@ from torchcam.methods import GradCAM
 from sklearn.utils.class_weight import compute_class_weight
 from torch.amp import autocast, GradScaler
 
-# ======= Konfiguracja =======
 BATCH_SIZE = 32
 EPOCHS = 70 # 70
 NUM_CLASSES = 5
@@ -26,10 +25,8 @@ LEARNING_RATE = 1e-4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DATA_DIR = "split"
 
-# ======= Optymalizacja CUDNN =======
 torch.backends.cudnn.benchmark = True
 
-# ======= Transformacje =======
 train_transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
@@ -42,12 +39,11 @@ val_test_transform = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-# ======= Dane =======
 train_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "train"), transform=train_transform)
 val_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "val"), transform=val_test_transform)
 test_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "test"), transform=val_test_transform)
 
-NUM_WORKERS = 4  # Dopasuj do liczby wątków CPU
+NUM_WORKERS = 4
 
 train_loader = DataLoader(
     train_dataset,
@@ -77,23 +73,18 @@ test_loader = DataLoader(
     persistent_workers=True
 )
 
-
-
-# ======= Model =======
 from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
 weights = EfficientNet_B0_Weights.IMAGENET1K_V1
 model = efficientnet_b0(weights=weights)
 model.classifier[1] = nn.Linear(model.classifier[1].in_features, NUM_CLASSES)
 model = model.to(DEVICE)
 
-# ======= Automatyczne wyliczanie wag klas =======
 labels = [label for _, label in train_dataset.samples]
 class_weights = compute_class_weight(class_weight="balanced", classes=np.arange(NUM_CLASSES), y=labels)
 class_weights_tensor = torch.tensor(class_weights, dtype=torch.float).to(DEVICE)
 
 # print(f"📊 Wagi klas: {class_weights}")
 
-# ======= Funkcja straty i optymalizator =======
 criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
 optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
@@ -102,7 +93,7 @@ def train():
     train_losses, val_losses = [], []
     train_accuracies, val_accuracies = [], []
 
-    scaler = GradScaler(device="cuda")  # 🔧 inicjalizacja skalera
+    scaler = GradScaler(device="cuda")
 
     for epoch in range(EPOCHS):
         model.train()
@@ -114,12 +105,10 @@ def train():
 
             optimizer.zero_grad()
 
-            # 🔧 mixed precision forward i loss
             with autocast(device_type="cuda"):
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
-            # 🔧 backward i optymalizacja ze skalowaniem
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
@@ -167,8 +156,6 @@ def evaluate(loader):
     print(f"Validation Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
     return avg_loss, acc
 
-
-# ======= Test + Metryki =======
 def test_and_metrics():
     model.load_state_dict(torch.load("best_model.pt"))
     model.eval()
@@ -202,7 +189,6 @@ def test_and_metrics():
     for i in range(NUM_CLASSES):
         print(f"Level {i} → Precision: {prec[i]:.2f}, Recall: {rec[i]:.2f}, F1: {f1[i]:.2f}")
 
-    # ======= Macierz pomyłek =======
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm.numpy(), annot=True, fmt="d", cmap="Blues", xticklabels=range(NUM_CLASSES), yticklabels=range(NUM_CLASSES))
     plt.xlabel("Predicted")
@@ -212,7 +198,6 @@ def test_and_metrics():
     plt.savefig("confusion_matrix.png")
     plt.close()
 
-    # ======= Precyzja, czułość, F1 per klasa =======
     metrics = {"Precision": prec.numpy(), "Recall": rec.numpy(), "F1 Score": f1.numpy()}
     for name, values in metrics.items():
         plt.figure()
@@ -226,7 +211,6 @@ def test_and_metrics():
         plt.savefig(f"{name.lower().replace(' ', '_')}_per_class.png")
         plt.close()
 
-    # ======= Makro metryki =======
     macro_prec = MulticlassPrecision(num_classes=NUM_CLASSES, average='macro')(y_pred, y_true)
     macro_rec = MulticlassRecall(num_classes=NUM_CLASSES, average='macro')(y_pred, y_true)
     macro_f1 = MulticlassF1Score(num_classes=NUM_CLASSES, average='macro')(y_pred, y_true)
@@ -243,7 +227,6 @@ def test_and_metrics():
     plt.savefig("macro_metrics.png")
     plt.close()
 
-    # ======= Histogram entropii (niepewność predykcji) =======
     entropy = -(y_probs * y_probs.log()).sum(dim=1)
     plt.figure()
     plt.hist(entropy.numpy(), bins=30, color='purple')
@@ -254,7 +237,6 @@ def test_and_metrics():
     plt.savefig("prediction_entropy.png")
     plt.close()
 
-    # ======= Histogram błędów klasyfikacji (True vs. Predicted) =======
     mismatches = (y_true != y_pred)
     mismatch_pairs = [(int(t), int(p)) for t, p in zip(y_true[mismatches], y_pred[mismatches])]
     mismatch_counter = Counter(mismatch_pairs)
@@ -272,7 +254,6 @@ def test_and_metrics():
     plt.savefig("misclassifications.png")
     plt.close()
 
-    # ======= Histogram: rozkład klas pred vs true =======
     true_counts = Counter(y_true.tolist())
     pred_counts = Counter(y_pred.tolist())
 
@@ -295,8 +276,6 @@ def test_and_metrics():
     plt.savefig("class_distribution_comparison.png")
     plt.close()
 
-    # ======= Eksport metryk do CSV =======
-    # Per-class
     df_class = pd.DataFrame({
         "Class": list(range(NUM_CLASSES)),
         "Precision": prec.numpy(),
@@ -305,7 +284,6 @@ def test_and_metrics():
     })
     df_class.to_csv("per_class_metrics.csv", index=False)
 
-    # Globalne
     df_global = pd.DataFrame({
         "Accuracy": [acc.item()],
         "Macro Precision": [macro_prec.item()],
@@ -314,14 +292,13 @@ def test_and_metrics():
     })
     df_global.to_csv("global_metrics.csv", index=False)
 
-    # ======= Grad-CAM: wizualizacja aktywacji =======
-    cam_extractor = GradCAM(model, target_layer="features.7")  # Ostatnia warstwa przed klasyfikatorem
+    cam_extractor = GradCAM(model, target_layer="features.7")
 
     test_iter = iter(DataLoader(test_dataset, batch_size=1, shuffle=True))
     os.makedirs("gradcam_outputs", exist_ok=True)
 
     model.eval()
-    for i in range(5):  # 5 losowych przykładów
+    for i in range(5):
         img_tensor, label = next(test_iter)
         input_tensor = img_tensor.to(DEVICE)
 
@@ -332,7 +309,6 @@ def test_and_metrics():
         img_pil = to_pil_image(img_tensor[0])
         heatmap = to_pil_image(activation_map, mode='F').resize(img_pil.size)
 
-        # Nałożenie heatmapy na oryginalny obraz
         result = np.array(img_pil.convert("RGB")).astype(np.float32) / 255
         heat = np.array(heatmap.convert("L")).astype(np.float32) / 255
         heat = np.stack([heat]*3, axis=-1)
@@ -348,7 +324,6 @@ def test_and_metrics():
         plt.savefig(f"gradcam_outputs/gradcam_{i+1}.png")
         plt.close()
 
-
 def plot_metrics(train_values, val_values, metric_name, filename):
     plt.figure()
     plt.plot(train_values, label=f"Train {metric_name}")
@@ -360,7 +335,6 @@ def plot_metrics(train_values, val_values, metric_name, filename):
     plt.tight_layout()
     plt.savefig(filename)
     plt.close()
-
 
 def train_model():
     train()
