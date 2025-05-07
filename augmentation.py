@@ -7,7 +7,6 @@ import albumentations as A
 from multiprocessing import Pool, cpu_count
 
 train_dir = r'split/train'
-output_dir = r'split/train_augmented'
 csv_path = r'database/trainLabels_updated.csv'
 
 num_augmentations = 3
@@ -17,14 +16,12 @@ supported_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff')
 transform = A.Compose([
     A.Rotate(limit=15, p=0.5),
     A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-    # A.RandomScale(scale_limit=0.1, p=0.4),
     A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.3),
     A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=15, val_shift_limit=10, p=0.4),
-    # A.Resize(height=1024, width=1024, p=1.0)
 ])
 
 def augment_image(args):
-    file_path, output_dir, level = args
+    file_path, level = args
     try:
         img = cv2.imread(file_path)
         if img is None:
@@ -32,8 +29,7 @@ def augment_image(args):
             return None
 
         filename, ext = os.path.splitext(os.path.basename(file_path))
-        output_level_dir = os.path.join(output_dir, level)
-        os.makedirs(output_level_dir, exist_ok=True)
+        output_level_dir = os.path.dirname(file_path)  # Save in same directory
 
         new_entries = []
         for i in range(num_augmentations):
@@ -51,14 +47,14 @@ def augment_image(args):
 def augment_train_set():
     print("\nDataset augmentation stage")
     print("------------------------")
-    
+
     image_files = []
     for level in os.listdir(train_dir):
         level_dir = os.path.join(train_dir, level)
         if os.path.isdir(level_dir):
             for file in os.listdir(level_dir):
                 if file.lower().endswith(supported_extensions):
-                    image_files.append((os.path.join(level_dir, file), output_dir, level))
+                    image_files.append((os.path.join(level_dir, file), level))
 
     print(f"Found {len(image_files)} images in {train_dir}")
 
@@ -91,5 +87,4 @@ def augment_train_set():
     else:
         print("No new entries added to CSV.")
 
-    print("Dataset augmentation complete!")
-    print(f"Augmented images saved to {output_dir}\n")
+    print("Dataset augmentation complete!\n")

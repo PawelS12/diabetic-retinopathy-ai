@@ -1,289 +1,341 @@
-import os
-import pandas as pd
-import cv2
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms as T
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
-from torchvision.models import resnet18, ResNet18_Weights
-from tqdm import tqdm
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-import seaborn as sns
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms, models
+import torchmetrics
+from torchmetrics.classification import MulticlassConfusionMatrix, MulticlassPrecision, MulticlassRecall, MulticlassF1Score, MulticlassAccuracy
+import torch.nn.functional as F
+from collections import Counter
 import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import os
+from tqdm import tqdm
+import pandas as pd
+from torchvision.transforms.functional import to_pil_image
+from torchcam.methods import GradCAM
 
-# Ścieżki
-train_dir = r'split/train'
-augmented_dir = r'split/train_augmented'
-val_dir = r'split/val'
-csv_path = r'database\trainLabels_updated.csv'
-model_save_path = r'models/best_model_resnet18_15epoch.pth'
+# ======= Konfiguracja =======
+BATCH_SIZE = 128
+EPOCHS = 3
+NUM_CLASSES = 5
+IMG_SIZE = 100 # 224
+LEARNING_RATE = 1e-4
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DATA_DIR = "split"
 
-# Parametry
-batch_size = 16
-num_epochs = 15
-learning_rate = 0.001
-num_classes = 5
-image_size = 224
-freeze_backbone = False  # Pełne trenowanie
-
-# Transformacje danych (bez augmentacji, tylko resize + normalizacja)
-train_transform = A.Compose([
-    A.Resize(height=image_size, width=image_size, p=1.0),
-    A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-    ToTensorV2()
+# ======= Transformacje =======
+train_transform = transforms.Compose([
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-val_transform = A.Compose([
-    A.Resize(height=image_size, width=image_size, p=1.0),
-    A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-    ToTensorV2()
+val_test_transform = transforms.Compose([
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-# Dataset
-class DiabeticRetinopathyDataset(Dataset):
-    def __init__(self, csv_file=None, train_dir=None, augmented_dir=None, val_dir=None, transform=None, is_val=False):
-        self.transform = transform
-        self.images = []
-        self.labels = []
+# ======= Dane =======
+train_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "train"), transform=train_transform)
+val_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "val"), transform=val_test_transform)
+test_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "test"), transform=val_test_transform)
 
-        if is_val:
-            for level in os.listdir(val_dir):
-                level_dir = os.path.join(val_dir, level)
-                if os.path.isdir(level_dir):
-                    for file in os.listdir(level_dir):
-                        if file.endswith(('.jpeg', '.jpg', '.png')):
-                            self.images.append(os.path.join(level_dir, file))
-                            self.labels.append(int(level))
-        else:
-            df = pd.read_csv(csv_file)
-            for _, row in df.iterrows():
-                image_name = row['image'] + '.jpeg'
-                level = row['level']
-                train_path = os.path.join(train_dir, str(level), image_name)
-                aug_path = os.path.join(augmented_dir, str(level), image_name)
-                if os.path.exists(train_path):
-                    self.images.append(train_path)
-                    self.labels.append(level)
-                elif os.path.exists(aug_path):
-                    self.images.append(aug_path)
-                    self.labels.append(level)
+NUM_WORKERS = 6  # Dopasuj do liczby wątków CPU
 
-    def __len__(self):
-        return len(self.images)
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=True,
+    num_workers=NUM_WORKERS,
+    pin_memory=True
+)
 
-    def __getitem__(self, idx):
-        img_path = self.images[idx]
-        label = self.labels[idx]
-        img = cv2.imread(img_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        if self.transform:
-            augmented = self.transform(image=img)
-            img = augmented['image']
-        return img, label
+val_loader = DataLoader(
+    val_dataset,
+    batch_size=BATCH_SIZE,
+    num_workers=NUM_WORKERS,
+    pin_memory=True
+)
+
+test_loader = DataLoader(
+    test_dataset,
+    batch_size=BATCH_SIZE,
+    num_workers=NUM_WORKERS,
+    pin_memory=True
+)
 
 
-def evaluate_model(model, val_loader, device):
-    model.eval()
-    all_preds = []
-    all_labels = []
+# ======= Model =======
+from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
+weights = EfficientNet_B0_Weights.IMAGENET1K_V1  # lub .DEFAULT
+model = efficientnet_b0(weights=weights)
+model.classifier[1] = nn.Linear(model.classifier[1].in_features, NUM_CLASSES)
+model = model.to(DEVICE)
 
-    with torch.no_grad():
-        for images, labels in tqdm(val_loader, desc="Evaluating"):
-            images, labels = images.to(device), labels.to(device)
-            outputs = model(images)
-            _, predicted = torch.max(outputs.data, 1)
+# ======= Trening =======
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
-            all_preds.extend(predicted.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
+def train():
+    best_acc = 0.0
+    train_losses, val_losses = [], []
+    train_accuracies, val_accuracies = [], []
 
-    # Obliczanie dokładności
-    overall_accuracy = accuracy_score(all_labels, all_preds) * 100
-    print(f"Overall Accuracy: {overall_accuracy:.2f}%")
-
-    # Obliczanie dokładności dla każdego stopnia choroby
-    for level in range(num_classes):
-        level_indices = [i for i, label in enumerate(all_labels) if label == level]
-        level_preds = [all_preds[i] for i in level_indices]
-        level_acc = accuracy_score([level] * len(level_preds), level_preds) * 100
-        print(f"Accuracy for level {level}: {level_acc:.2f}%")
-
-    precision = precision_score(all_labels, all_preds, average='weighted')
-    recall = recall_score(all_labels, all_preds, average='weighted')
-    f1 = f1_score(all_labels, all_preds, average='weighted')
-
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall: {recall:.4f}")
-    print(f"F1 Score: {f1:.4f}")
-
-    # Confusion Matrix
-    cm = confusion_matrix(all_labels, all_preds)
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=[str(i) for i in range(num_classes)],
-                yticklabels=[str(i) for i in range(num_classes)])
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.title('Confusion Matrix')
-    plt.show()
-
-
-# Funkcja trenowania
-def train_model():
-    # Ustawienie urządzenia
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"PyTorch version: {torch.__version__}")
-    print(f"CUDA available: {torch.cuda.is_available()}")
-    print(f"Using device: {device}")
-    if torch.cuda.is_available():
-        print(f"GPU Name: {torch.cuda.get_device_name(0)}")
-        print(f"Number of GPUs: {torch.cuda.device_count()}")
-    else:
-        print("No GPU available, running on CPU.")
-
-    # Wczytanie danych
-    train_dataset = DiabeticRetinopathyDataset(
-        csv_file=csv_path,
-        train_dir=train_dir,
-        augmented_dir=augmented_dir,
-        transform=train_transform,
-        is_val=False
-    )
-    val_dataset = DiabeticRetinopathyDataset(
-        val_dir=val_dir,
-        transform=val_transform,
-        is_val=True
-    )
-
-    num_workers = os.cpu_count()
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
-
-    print(f"Training set: {len(train_dataset)} images")
-    print(f"Validation set: {len(val_dataset)} images")
-
-    # Inicjalizacja modelu ResNet18
-    model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
-    if freeze_backbone:
-        for param in model.parameters():
-            param.requires_grad = False
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
-    model = model.to(device)
-
-    # Sprawdzenie urządzenia modelu
-    print(f"Model device: {next(model.parameters()).device}")
-
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
-
-    # Dane do wykresów
-    train_losses = []
-    train_accuracies = []
-    val_losses = []
-    val_accuracies = []
-    epoch_data = []
-
-
-    # Trenowanie
-    best_val_acc = 0.0
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-
-    for epoch in range(num_epochs):
+    for epoch in range(EPOCHS):
         model.train()
         running_loss = 0.0
-        train_correct = 0
-        train_total = 0
+        correct = 0
 
-        for i, (images, labels) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Training")):
-            images, labels = images.to(device), labels.to(device)
-            if i == 0 and epoch == 0:
-                print(f"First batch images device: {images.device}")
-                print(f"First batch labels device: {labels.device}")
+        for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}"):
+            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+
             optimizer.zero_grad()
-            outputs = model(images)
+            outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
 
-            running_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
-            train_total += labels.size(0)
-            train_correct += (predicted == labels).sum().item()
+            running_loss += loss.item() * inputs.size(0)
+            preds = torch.argmax(outputs, 1)
+            correct += (preds == labels).sum().item()
 
-        train_loss = running_loss / len(train_loader)
-        train_acc = 100 * train_correct / train_total
+        epoch_loss = running_loss / len(train_dataset)
+        epoch_acc = correct / len(train_dataset)
+        train_losses.append(epoch_loss)
+        train_accuracies.append(epoch_acc)
 
-        train_losses.append(train_loss)
-        train_accuracies.append(train_acc)
+        print(f"Train Loss: {epoch_loss:.4f}, Accuracy: {epoch_acc:.4f}")
 
-        # Walidacja
-        model.eval()
-        val_correct = 0
-        val_total = 0
-        val_loss = 0.0
-        with torch.no_grad():
-            for images, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Validation"):
-                images, labels = images.to(device), labels.to(device)
-                outputs = model(images)
-                loss = criterion(outputs, labels)
-                val_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                val_total += labels.size(0)
-                val_correct += (predicted == labels).sum().item()
-
-        val_loss = val_loss / len(val_loader)
-        val_acc = 100 * val_correct / val_total
-
+        val_loss, val_acc = evaluate(val_loader)
         val_losses.append(val_loss)
         val_accuracies.append(val_acc)
 
-        print(f"Epoch {epoch+1}/{num_epochs}")
-        print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
-        print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
+        if val_acc > best_acc:
+            best_acc = val_acc
+            torch.save(model.state_dict(), "best_model.pt")
+            print("✅ Model zapisany!")
 
-        epoch_data.append({
-            "epoch": epoch + 1,
-            "train_loss": train_loss,
-            "train_acc": train_acc,
-            "val_loss": val_loss,
-            "val_acc": val_acc
-        })
+    # ======= Rysowanie wykresów =======
+    plot_metrics(train_losses, val_losses, "Loss", "loss_plot.png")
+    plot_metrics(train_accuracies, val_accuracies, "Accuracy", "accuracy_plot.png")
 
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            torch.save(model.state_dict(), model_save_path)
-            print(f"Saved best model with Val Acc: {val_acc:.2f}%")
 
-    # zapis danych z każdej epoki do csv
-    results_df = pd.DataFrame(epoch_data)
-    os.makedirs('results_plots', exist_ok=True)
-    results_df.to_csv(os.path.join('results_plots', 'training_results.csv'), index=False)
+def evaluate(loader):
+    model.eval()
+    running_loss = 0.0
+    correct = 0
 
-    # ocena modelu po treniwaniu
-    evaluate_model(model, val_loader, device)
+    with torch.no_grad():
+        for inputs, labels in loader:
+            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            preds = torch.argmax(outputs, 1)
+            correct += (preds == labels).sum().item()
+            running_loss += loss.item() * inputs.size(0)
 
-    os.makedirs('results_plots', exist_ok=True)
+    avg_loss = running_loss / len(loader.dataset)
+    acc = correct / len(loader.dataset)
+    print(f"Validation Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
+    return avg_loss, acc
 
-    # Wykres dokładności
-    plt.figure(figsize=(10, 5))
-    plt.plot(range(num_epochs), train_accuracies, label="Train Accuracy")
-    plt.plot(range(num_epochs), val_accuracies, label="Validation Accuracy")
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
-    plt.title('Training and Validation Accuracy')
-    plt.legend()
-    plt.savefig(os.path.join('results_plots', 'training_validation_accuracy.png'))
+
+# ======= Test + Metryki =======
+def test_and_metrics():
+    model.load_state_dict(torch.load("best_model.pt"))
+    model.eval()
+
+    y_true = []
+    y_pred = []
+    y_probs = []
+
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs = inputs.to(DEVICE)
+            outputs = model(inputs)
+            probs = F.softmax(outputs, dim=1).cpu()
+            preds = torch.argmax(probs, 1)
+
+            y_pred.extend(preds.tolist())
+            y_true.extend(labels.tolist())
+            y_probs.extend(probs.tolist())
+
+    y_true = torch.tensor(y_true)
+    y_pred = torch.tensor(y_pred)
+    y_probs = torch.tensor(y_probs)
+
+    acc = MulticlassAccuracy(num_classes=NUM_CLASSES)(y_pred, y_true)
+    prec = MulticlassPrecision(num_classes=NUM_CLASSES, average='none')(y_pred, y_true)
+    rec = MulticlassRecall(num_classes=NUM_CLASSES, average='none')(y_pred, y_true)
+    f1 = MulticlassF1Score(num_classes=NUM_CLASSES, average='none')(y_pred, y_true)
+    cm = MulticlassConfusionMatrix(num_classes=NUM_CLASSES)(y_pred, y_true)
+
+    print(f"\n🔍 Accuracy: {acc:.4f}")
+    for i in range(NUM_CLASSES):
+        print(f"Level {i} → Precision: {prec[i]:.2f}, Recall: {rec[i]:.2f}, F1: {f1[i]:.2f}")
+
+    # ======= Macierz pomyłek =======
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm.numpy(), annot=True, fmt="d", cmap="Blues", xticklabels=range(NUM_CLASSES), yticklabels=range(NUM_CLASSES))
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title("Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig("confusion_matrix.png")
     plt.close()
 
-    # Wykres straty
-    plt.figure(figsize=(10, 5))
-    plt.plot(range(num_epochs), train_losses, label="Train Loss")
-    plt.plot(range(num_epochs), val_losses, label="Validation Loss")
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss')
-    plt.legend()
-    plt.savefig(os.path.join('results_plots', 'training_validation_loss.png'))
+    # ======= Precyzja, czułość, F1 per klasa =======
+    metrics = {"Precision": prec.numpy(), "Recall": rec.numpy(), "F1 Score": f1.numpy()}
+    for name, values in metrics.items():
+        plt.figure()
+        plt.bar(range(NUM_CLASSES), values)
+        plt.xticks(range(NUM_CLASSES))
+        plt.ylim(0, 1)
+        plt.title(f"{name} per Class")
+        plt.xlabel("Class")
+        plt.ylabel(name)
+        plt.tight_layout()
+        plt.savefig(f"{name.lower().replace(' ', '_')}_per_class.png")
+        plt.close()
+
+    # ======= Makro metryki =======
+    macro_prec = MulticlassPrecision(num_classes=NUM_CLASSES, average='macro')(y_pred, y_true)
+    macro_rec = MulticlassRecall(num_classes=NUM_CLASSES, average='macro')(y_pred, y_true)
+    macro_f1 = MulticlassF1Score(num_classes=NUM_CLASSES, average='macro')(y_pred, y_true)
+
+    macro_values = [acc.item(), macro_prec.item(), macro_rec.item(), macro_f1.item()]
+    labels = ["Accuracy", "Macro Precision", "Macro Recall", "Macro F1"]
+
+    plt.figure()
+    plt.bar(labels, macro_values, color="skyblue")
+    plt.ylim(0, 1)
+    plt.title("Macro Metrics")
+    plt.ylabel("Score")
+    plt.tight_layout()
+    plt.savefig("macro_metrics.png")
     plt.close()
+
+    # ======= Histogram entropii (niepewność predykcji) =======
+    entropy = -(y_probs * y_probs.log()).sum(dim=1)
+    plt.figure()
+    plt.hist(entropy.numpy(), bins=30, color='purple')
+    plt.title("Histogram Entropii Predykcji")
+    plt.xlabel("Entropia (niepewność)")
+    plt.ylabel("Liczba próbek")
+    plt.tight_layout()
+    plt.savefig("prediction_entropy.png")
+    plt.close()
+
+    # ======= Histogram błędów klasyfikacji (True vs. Predicted) =======
+    mismatches = (y_true != y_pred)
+    mismatch_pairs = [(int(t), int(p)) for t, p in zip(y_true[mismatches], y_pred[mismatches])]
+    mismatch_counter = Counter(mismatch_pairs)
+
+    labels = [f"{t}→{p}" for (t, p), _ in mismatch_counter.items()]
+    values = list(mismatch_counter.values())
+
+    plt.figure(figsize=(10, 4))
+    plt.bar(labels, values, color="orange")
+    plt.xticks(rotation=45)
+    plt.title("Błędne Klasyfikacje (prawda → predykcja)")
+    plt.xlabel("Pary klas")
+    plt.ylabel("Liczba błędów")
+    plt.tight_layout()
+    plt.savefig("misclassifications.png")
+    plt.close()
+
+    # ======= Histogram: rozkład klas pred vs true =======
+    true_counts = Counter(y_true.tolist())
+    pred_counts = Counter(y_pred.tolist())
+
+    all_classes = list(range(NUM_CLASSES))
+    true_vals = [true_counts.get(i, 0) for i in all_classes]
+    pred_vals = [pred_counts.get(i, 0) for i in all_classes]
+
+    x = np.arange(NUM_CLASSES)
+    width = 0.35
+
+    plt.figure()
+    plt.bar(x - width/2, true_vals, width, label='Prawda')
+    plt.bar(x + width/2, pred_vals, width, label='Predykcja')
+    plt.xticks(x)
+    plt.xlabel("Klasa")
+    plt.ylabel("Liczba próbek")
+    plt.title("Rozkład klas: Prawdziwe vs. Przewidziane")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("class_distribution_comparison.png")
+    plt.close()
+
+    # ======= Eksport metryk do CSV =======
+    # Per-class
+    df_class = pd.DataFrame({
+        "Class": list(range(NUM_CLASSES)),
+        "Precision": prec.numpy(),
+        "Recall": rec.numpy(),
+        "F1": f1.numpy()
+    })
+    df_class.to_csv("per_class_metrics.csv", index=False)
+
+    # Globalne
+    df_global = pd.DataFrame({
+        "Accuracy": [acc.item()],
+        "Macro Precision": [macro_prec.item()],
+        "Macro Recall": [macro_rec.item()],
+        "Macro F1": [macro_f1.item()]
+    })
+    df_global.to_csv("global_metrics.csv", index=False)
+
+    # ======= Grad-CAM: wizualizacja aktywacji =======
+    cam_extractor = GradCAM(model, target_layer="features.7")  # Ostatnia warstwa przed klasyfikatorem
+
+    test_iter = iter(DataLoader(test_dataset, batch_size=1, shuffle=True))
+    os.makedirs("gradcam_outputs", exist_ok=True)
+
+    model.eval()
+    for i in range(5):  # 5 losowych przykładów
+        img_tensor, label = next(test_iter)
+        input_tensor = img_tensor.to(DEVICE)
+
+        output = model(input_tensor)
+        pred_class = output.argmax(dim=1).item()
+
+        activation_map = cam_extractor(pred_class, output)[0].cpu()
+        img_pil = to_pil_image(img_tensor[0])
+        heatmap = to_pil_image(activation_map, mode='F').resize(img_pil.size)
+
+        # Nałożenie heatmapy na oryginalny obraz
+        result = np.array(img_pil.convert("RGB")).astype(np.float32) / 255
+        heat = np.array(heatmap.convert("L")).astype(np.float32) / 255
+        heat = np.stack([heat]*3, axis=-1)
+
+        overlay = (0.6 * result + 0.4 * heat)
+        overlay = np.clip(overlay, 0, 1)
+
+        plt.figure()
+        plt.imshow(overlay)
+        plt.axis("off")
+        plt.title(f"True: {label}, Pred: {pred_class}")
+        plt.tight_layout()
+        plt.savefig(f"gradcam_outputs/gradcam_{i+1}.png")
+        plt.close()
+
+
+def plot_metrics(train_values, val_values, metric_name, filename):
+    plt.figure()
+    plt.plot(train_values, label=f"Train {metric_name}")
+    plt.plot(val_values, label=f"Val {metric_name}")
+    plt.xlabel("Epoch")
+    plt.ylabel(metric_name)
+    plt.title(f"{metric_name} over Epochs")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
+
+
+def train_model():
+    train()
+    test_and_metrics()
