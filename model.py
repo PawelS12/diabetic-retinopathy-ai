@@ -14,15 +14,20 @@ from tqdm import tqdm
 import pandas as pd
 from torchvision.transforms.functional import to_pil_image
 from torchcam.methods import GradCAM
+from sklearn.utils.class_weight import compute_class_weight
+from torch.amp import autocast, GradScaler
 
 # ======= Konfiguracja =======
-BATCH_SIZE = 128
-EPOCHS = 3
+BATCH_SIZE = 32
+EPOCHS = 70 # 70
 NUM_CLASSES = 5
-IMG_SIZE = 100 # 224
+IMG_SIZE = 224 # 224
 LEARNING_RATE = 1e-4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DATA_DIR = "split"
+
+# ======= Optymalizacja CUDNN =======
+torch.backends.cudnn.benchmark = True
 
 # ======= Transformacje =======
 train_transform = transforms.Compose([
@@ -42,46 +47,62 @@ train_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "train"), transform=
 val_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "val"), transform=val_test_transform)
 test_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "test"), transform=val_test_transform)
 
-NUM_WORKERS = 6  # Dopasuj do liczby wątków CPU
+NUM_WORKERS = 4  # Dopasuj do liczby wątków CPU
 
 train_loader = DataLoader(
     train_dataset,
     batch_size=BATCH_SIZE,
     shuffle=True,
     num_workers=NUM_WORKERS,
-    pin_memory=True
+    pin_memory=True,
+    prefetch_factor=2,
+    persistent_workers=True
 )
 
 val_loader = DataLoader(
     val_dataset,
     batch_size=BATCH_SIZE,
     num_workers=NUM_WORKERS,
-    pin_memory=True
+    pin_memory=True,
+    prefetch_factor=2,
+    persistent_workers=True
 )
 
 test_loader = DataLoader(
     test_dataset,
     batch_size=BATCH_SIZE,
     num_workers=NUM_WORKERS,
-    pin_memory=True
+    pin_memory=True,
+    prefetch_factor=2,
+    persistent_workers=True
 )
+
 
 
 # ======= Model =======
 from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
-weights = EfficientNet_B0_Weights.IMAGENET1K_V1  # lub .DEFAULT
+weights = EfficientNet_B0_Weights.IMAGENET1K_V1
 model = efficientnet_b0(weights=weights)
 model.classifier[1] = nn.Linear(model.classifier[1].in_features, NUM_CLASSES)
 model = model.to(DEVICE)
 
-# ======= Trening =======
-criterion = nn.CrossEntropyLoss()
+# ======= Automatyczne wyliczanie wag klas =======
+labels = [label for _, label in train_dataset.samples]
+class_weights = compute_class_weight(class_weight="balanced", classes=np.arange(NUM_CLASSES), y=labels)
+class_weights_tensor = torch.tensor(class_weights, dtype=torch.float).to(DEVICE)
+
+# print(f"📊 Wagi klas: {class_weights}")
+
+# ======= Funkcja straty i optymalizator =======
+criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
 optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
 def train():
     best_acc = 0.0
     train_losses, val_losses = [], []
     train_accuracies, val_accuracies = [], []
+
+    scaler = GradScaler(device="cuda")  # 🔧 inicjalizacja skalera
 
     for epoch in range(EPOCHS):
         model.train()
@@ -92,10 +113,16 @@ def train():
             inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
 
             optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+
+            # 🔧 mixed precision forward i loss
+            with autocast(device_type="cuda"):
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+
+            # 🔧 backward i optymalizacja ze skalowaniem
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             running_loss += loss.item() * inputs.size(0)
             preds = torch.argmax(outputs, 1)
@@ -117,7 +144,6 @@ def train():
             torch.save(model.state_dict(), "best_model.pt")
             print("✅ Model zapisany!")
 
-    # ======= Rysowanie wykresów =======
     plot_metrics(train_losses, val_losses, "Loss", "loss_plot.png")
     plot_metrics(train_accuracies, val_accuracies, "Accuracy", "accuracy_plot.png")
 
