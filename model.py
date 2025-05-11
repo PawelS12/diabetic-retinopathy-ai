@@ -17,6 +17,11 @@ from torchcam.methods import GradCAM
 from sklearn.utils.class_weight import compute_class_weight
 from torch.amp import autocast, GradScaler
 
+
+RESULTS_DIR = "results_plots"
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+
 BATCH_SIZE = 32
 EPOCHS = 70 # 70
 NUM_CLASSES = 5
@@ -92,13 +97,20 @@ def train():
     best_acc = 0.0
     train_losses, val_losses = [], []
     train_accuracies, val_accuracies = [], []
+    history = []
 
     scaler = GradScaler(device="cuda")
+
+    # === EARLY STOPPING SETUP ===
+    patience = 8
+    trigger_times = 0
+    best_val_loss = float('inf')
 
     for epoch in range(EPOCHS):
         model.train()
         running_loss = 0.0
         correct = 0
+        min_delta = 0.01
 
         for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}"):
             inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
@@ -128,13 +140,32 @@ def train():
         val_losses.append(val_loss)
         val_accuracies.append(val_acc)
 
-        if val_acc > best_acc:
-            best_acc = val_acc
-            torch.save(model.state_dict(), "best_model.pt")
-            print("✅ Model zapisany!")
+        history.append({
+            "epoch": epoch + 1,
+            "train_loss": epoch_loss,
+            "val_loss": val_loss,
+            "train_acc": epoch_acc,
+            "val_acc": val_acc
+        })
 
-    plot_metrics(train_losses, val_losses, "Loss", "loss_plot.png")
-    plot_metrics(train_accuracies, val_accuracies, "Accuracy", "accuracy_plot.png")
+        history_df = pd.DataFrame(history)
+        history_df.to_csv(os.path.join(RESULTS_DIR, "training_history.csv"), index=False)
+
+        # === EARLY STOPPING LOGIC ===
+        if val_loss < best_val_loss - min_delta:
+            best_val_loss = val_loss
+            trigger_times = 0
+            torch.save(model.state_dict(), "best_model.pt")
+            print("Model saved (new best val_loss)!")
+        else:
+            trigger_times += 1
+            print(f"Early stopping trigger count: {trigger_times}/{patience}")
+            if trigger_times >= patience:
+                print("Early stopping triggered.")
+                break
+
+    plot_metrics(train_losses, val_losses, "Loss", os.path.join(RESULTS_DIR, "loss_plot.png"))
+    plot_metrics(train_accuracies, val_accuracies, "Accuracy", os.path.join(RESULTS_DIR, "accuracy_plot.png"))
 
 
 def evaluate(loader):
@@ -195,7 +226,7 @@ def test_and_metrics():
     plt.ylabel("True")
     plt.title("Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("confusion_matrix.png")
+    plt.savefig(os.path.join(RESULTS_DIR, "confusion_matrix.png"))
     plt.close()
 
     metrics = {"Precision": prec.numpy(), "Recall": rec.numpy(), "F1 Score": f1.numpy()}
@@ -208,7 +239,8 @@ def test_and_metrics():
         plt.xlabel("Class")
         plt.ylabel(name)
         plt.tight_layout()
-        plt.savefig(f"{name.lower().replace(' ', '_')}_per_class.png")
+        filename = os.path.join(RESULTS_DIR, f"{name.lower().replace(' ', '_')}_per_class.png")
+        plt.savefig(filename)
         plt.close()
 
     macro_prec = MulticlassPrecision(num_classes=NUM_CLASSES, average='macro')(y_pred, y_true)
@@ -224,7 +256,7 @@ def test_and_metrics():
     plt.title("Macro Metrics")
     plt.ylabel("Score")
     plt.tight_layout()
-    plt.savefig("macro_metrics.png")
+    plt.savefig(os.path.join(RESULTS_DIR, "macro_metrics.png"))
     plt.close()
 
     entropy = -(y_probs * y_probs.log()).sum(dim=1)
@@ -234,7 +266,7 @@ def test_and_metrics():
     plt.xlabel("Entropia (niepewność)")
     plt.ylabel("Liczba próbek")
     plt.tight_layout()
-    plt.savefig("prediction_entropy.png")
+    plt.savefig(os.path.join(RESULTS_DIR, "prediction_entropy.png"))
     plt.close()
 
     mismatches = (y_true != y_pred)
@@ -273,7 +305,7 @@ def test_and_metrics():
     plt.title("Rozkład klas: Prawdziwe vs. Przewidziane")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("class_distribution_comparison.png")
+    plt.savefig(os.path.join(RESULTS_DIR, "class_distribution_comparison.png"))
     plt.close()
 
     df_class = pd.DataFrame({
@@ -282,7 +314,7 @@ def test_and_metrics():
         "Recall": rec.numpy(),
         "F1": f1.numpy()
     })
-    df_class.to_csv("per_class_metrics.csv", index=False)
+    df_class.to_csv(os.path.join(RESULTS_DIR, "per_class_metrics.csv"), index=False)
 
     df_global = pd.DataFrame({
         "Accuracy": [acc.item()],
@@ -290,7 +322,7 @@ def test_and_metrics():
         "Macro Recall": [macro_rec.item()],
         "Macro F1": [macro_f1.item()]
     })
-    df_global.to_csv("global_metrics.csv", index=False)
+    df_global.to_csv(os.path.join(RESULTS_DIR, "global_metrics.csv"), index=False)
 
     cam_extractor = GradCAM(model, target_layer="features.7")
 
