@@ -371,3 +371,14 @@ def plot_metrics(train_values, val_values, metric_name, filename):
 def train_model():
     train()
     test_and_metrics()
+
+
+def load_trained_model(weights_path="best_model.pt"):
+    from torchvision.models import efficientnet_b3, EfficientNet_B3_Weights
+    weights = EfficientNet_B3_Weights.IMAGENET1K_V1
+    model = efficientnet_b3(weights=weights)
+    model.classifier[1] = nn.Linear(model.classifier[1].in_features, NUM_CLASSES)
+    model.load_state_dict(torch.load(weights_path, map_location=DEVICE))
+    model.eval()
+    model.to(DEVICE)
+    return model
