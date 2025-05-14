@@ -57,18 +57,7 @@ train_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "train"), transform=
 val_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "val"), transform=val_test_transform)
 test_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "test"), transform=val_test_transform)
 
-labels = [label for _, label in train_dataset.samples]
-class_counts = np.bincount(labels)
-class_weights = 1. / class_counts
-sample_weights = [class_weights[label] for label in labels]
-
-sampler = WeightedRandomSampler(
-    weights=sample_weights,
-    num_samples=len(sample_weights),
-    replacement=True
-)
-
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, sampler=sampler,
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
                           num_workers=NUM_WORKERS, pin_memory=True,
                           prefetch_factor=2, persistent_workers=True)
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False,
