@@ -1,18 +1,12 @@
-# import image_cropping
-# import duplicates
-# import folder_distributor
-# import sets_division
-# import augmentation
+import cropping
+import duplicates
+import splitter
 import model
 
 
 if __name__ == "__main__":
-    #image_cropping.crop_image()
-
-    #duplicates.remove_duplicates()
-
-    #folder_distributor.split_photos()
-    #sets_division.split_into_sets()
-    #augmentation.augment_train_set()
-
-    model.train_model()
+    # cropping.crop_image()
+    # duplicates.remove_duplicates()
+    # splitter.split_images()
+    model.train()
+    model.test_and_metrics()

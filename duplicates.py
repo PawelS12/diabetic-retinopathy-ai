@@ -3,11 +3,10 @@ import glob
 from PIL import Image
 import imagehash
 from tqdm import tqdm
-from multiprocessing import Pool, Manager
 import multiprocessing as mp
 import pandas as pd
 
-output_folder = r"output"
+output_folder = r"to_model"
 image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.tif', '*.tiff']
 csv_path = r'database\trainLabels.csv'
 updated_csv_path = r'database\trainLabels_updated.csv'
@@ -25,7 +24,7 @@ def parallel_hash_computation(image_files):
     num_processes = mp.cpu_count()
     print(f"I use {num_processes} processes to calculate hashes.")
 
-    with Pool(processes=num_processes) as pool:
+    with mp.Pool(processes=num_processes) as pool:
         results = list(tqdm(pool.imap(compute_hash, image_files),
                             total=len(image_files),
                             desc="Calculating image hashes"))
