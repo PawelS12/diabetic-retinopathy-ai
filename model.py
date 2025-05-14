@@ -24,8 +24,8 @@ DATA_DIR = "to_model"
 RESULTS_DIR = "results"
 MODEL_PATH = "best_model.pt"
 NUM_CLASSES = 5
-IMG_SIZE = 260
-BATCH_SIZE = 28
+IMG_SIZE = 260 # 260
+BATCH_SIZE = 28 # 28
 EPOCHS = 15
 LEARNING_RATE = 1e-4
 NUM_WORKERS = 4
@@ -97,7 +97,7 @@ scaler = GradScaler(device="cuda")
 def train():
     best_val_loss = float('inf')
     trigger_times = 0
-    patience = 12
+    patience = 14
     min_delta = 0.01
 
     history = []
@@ -147,6 +147,9 @@ def train():
 
         plot_metrics([h['train_loss'] for h in history], [h['val_loss'] for h in history], "Loss", os.path.join(RESULTS_DIR, "loss_plot.png"))
         plot_metrics([h['train_acc'] for h in history], [h['val_acc'] for h in history], "Accuracy", os.path.join(RESULTS_DIR, "accuracy_plot.png"))
+
+    torch.save(model.state_dict(), os.path.join(RESULTS_DIR, "last_epoch_model.pt"))
+    print("Last epoch model saved.")
 
 def evaluate(loader):
     model.eval()
