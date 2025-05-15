@@ -11,7 +11,7 @@ The model will automatically identify the disease progression in one of five sta
 - ✅ **Severe non-proliferative diabetic retinopathy**  
 - ✅ **Proliferative diabetic retinopathy**  
 
----
+<br>
 
 ## 📂 Dataset  
 The dataset used for training and evaluation is the **Diabetic Retinopathy Resized** dataset, available on Kaggle:  
@@ -19,14 +19,14 @@ The dataset used for training and evaluation is the **Diabetic Retinopathy Resiz
 
 This dataset contains resized retinal images categorized into five classes, which align with the stages of diabetic retinopathy used in this project.
 
----
+<br>
 
 ## 🛠 Technologies  
 - **Language:** Python 🐍  
 - **Libraries:** PyTorch, torchvision, OpenCV, PIL, matplotlib, seaborn, scikit-learn  
 - **Interface:** Desktop GUI (Tkinter) 🖥️  
 
----
+<br>
 
 ## 🤖 AI Model Selection & Implementation  
 For the task of diabetic retinopathy classification, Convolutional Neural Networks (CNNs) are utilized. The final model is based on EfficientNet-B2, fine-tuned on preprocessed retinal images.  
@@ -37,7 +37,7 @@ For the task of diabetic retinopathy classification, Convolutional Neural Networ
 - Grad-CAM visualizations for interpretability  
 - Trained using class weighting, data augmentation, and mixed-precision training  
 
----
+<br>
 
 ## 📈 Results & Metrics  
 All training history, performance metrics, evaluation plots, confusion matrix, and Grad-CAM visualizations are saved in the `results/` folder.  
@@ -49,7 +49,7 @@ This includes:
 - Grad-CAM visual examples
 - Prediction entropy histogram
 
----
+<br>
 
 ## 👥 Collaborators  
 This project is being developed by:  
