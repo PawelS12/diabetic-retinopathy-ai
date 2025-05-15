@@ -11,20 +11,45 @@ The model will automatically identify the disease progression in one of five sta
 - ✅ **Severe non-proliferative diabetic retinopathy**  
 - ✅ **Proliferative diabetic retinopathy**  
 
+---
 
+## 📂 Dataset  
+The dataset used for training and evaluation is the **Diabetic Retinopathy Resized** dataset, available on Kaggle:  
+🔗 [https://www.kaggle.com/datasets/tanlikesmath/diabetic-retinopathy-resized](https://www.kaggle.com/datasets/tanlikesmath/diabetic-retinopathy-resized)  
+
+This dataset contains resized retinal images categorized into five classes, which align with the stages of diabetic retinopathy used in this project.
+
+---
 
 ## 🛠 Technologies  
 - **Language:** Python 🐍  
-- **Libraries:** *(to be determined during development)*  
-- **Interface:** Desktop 🖥️  
+- **Libraries:** PyTorch, torchvision, OpenCV, PIL, matplotlib, seaborn, scikit-learn  
+- **Interface:** Desktop GUI (Tkinter) 🖥️  
 
-
+---
 
 ## 🤖 AI Model Selection & Implementation  
-For image classification, **Convolutional Neural Networks (CNNs)** will be utilized, including:  
--  *(to be determined during development)*  
+For the task of diabetic retinopathy classification, Convolutional Neural Networks (CNNs) are utilized. The final model is based on EfficientNet-B2, fine-tuned on preprocessed retinal images.  
 
+**Model highlights:**  
+- Input image size: 260×260  
+- 5-class classification (retinopathy levels 0–4)  
+- Grad-CAM visualizations for interpretability  
+- Trained using class weighting, data augmentation, and mixed-precision training  
 
+---
+
+## 📈 Results & Metrics  
+All training history, performance metrics, evaluation plots, confusion matrix, and Grad-CAM visualizations are saved in the `results/` folder.  
+This includes:
+- Accuracy, loss curves
+- Per-class precision, recall, and F1-score
+- Confusion matrix heatmap
+- Class distribution comparison
+- Grad-CAM visual examples
+- Prediction entropy histogram
+
+---
 
 ## 👥 Collaborators  
 This project is being developed by:  
